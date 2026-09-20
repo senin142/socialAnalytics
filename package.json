@@ -42,6 +42,13 @@
     "winston": "^3.14.2",
     "winston-daily-rotate-file": "^5.0.0"
   },
+  "overrides": {
+    "multer": "2.4.0",
+    "body-parser": "1.20.6",
+    "lodash": "4.18.1",
+    "qs": "6.16.0",
+    "file-type": "21.3.2"
+  },
   "devDependencies": {
     "@nestjs/cli": "^10.4.5",
     "@nestjs/schematics": "^10.1.4",
