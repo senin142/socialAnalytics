@@ -1,11 +1,17 @@
 import { YoutubeBackfillWalkState } from '../../../database/entity';
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { IngestionControlService } from '../../shared/services/ingestion-control.service';
+import { IngestionRunConflictError, IngestionRunsService } from '../../shared/services/ingestion-runs.service';
 import { YoutubeQuotaService } from './youtube-quota.service';
 import { YoutubeService } from './youtube.service';
 
 type WalkChunkResult = {
 	ok: boolean;
 	error?: string;
+	// 'lock' = another run (usually the nightly cron) already holds this job's lock;
+	// 'quota' = the daily quota budget is exhausted. Both mean "not a failure, retry the
+	// same window next tick" -- distinct from `error`, which is a real, unexpected failure.
+	skipped?: 'lock' | 'quota';
 };
 
 type WalkStatus = 'idle' | 'running' | 'stopped' | 'completed';
@@ -33,6 +39,18 @@ const TOP_N_VIDEOS = 10;
  * YoutubeQuotaService's daily budget limit is retried as-is next tick rather than skipped,
  * since the budget resets at midnight Pacific and the walk's tick interval is normally much
  * longer than the time until reset.
+ *
+ * IMPORTANT: unlike Meta, where the shared-run lock lives inside MetaIngestService's methods
+ * (so any caller automatically cooperates with it), YouTube's lock lives one layer up in
+ * YoutubeIngestService -- YoutubeService's own methods have no locking at all. Calling them
+ * directly, as this walk needs to, would otherwise let a tick race the nightly
+ * geo_device/video_retention cron jobs and double-write. This walk claims the same
+ * (platform, jobType, entityType) lock those crons use -- 'youtube'/'geo_device'/'channel' and
+ * 'youtube'/'video_retention'/'channel' -- via IngestionRunsService before each call, so
+ * whichever gets there first wins the tick and the other retries next time. video_geo has no
+ * existing cron, so there's nothing to race, but it's locked under a 'video_geo' jobType too
+ * for consistency and so a future cron for it would cooperate automatically. This also means
+ * the walk's activity shows up in GET .../ingestion/status like any other job.
  */
 @Injectable()
 export class YoutubeBackfillWalkService implements OnModuleInit {
@@ -52,6 +70,8 @@ export class YoutubeBackfillWalkService implements OnModuleInit {
 	constructor(
 		private readonly youtubeService: YoutubeService,
 		private readonly youtubeQuotaService: YoutubeQuotaService,
+		private readonly ingestionRunsService: IngestionRunsService,
+		private readonly ingestionControlService: IngestionControlService,
 		@Inject('YOUTUBE_BACKFILL_WALK_STATE_REPOSITORY')
 		private readonly walkStateRepo: typeof YoutubeBackfillWalkState
 	) { }
@@ -182,31 +202,32 @@ export class YoutubeBackfillWalkService implements OnModuleInit {
 		const results: Record<string, WalkChunkResult> = {};
 		let shouldRetrySameWindow = false;
 
-		const attempts: Array<[string, () => Promise<unknown>]> = [
+		const attempts: Array<[string, string, () => Promise<unknown>]> = [
 			[
 				'geoDeviceStats',
+				'geo_device',
 				() => this.youtubeService.ingestDailyGeoDeviceStats(undefined, cursorStart, cursorEnd)
 			],
 			[
 				'videoGeoStats',
+				'video_geo',
 				() => this.youtubeService.ingestDailyVideoGeoStats(TOP_N_VIDEOS, undefined, cursorStart, cursorEnd)
 			],
 			[
 				'videoRetention',
+				'video_retention',
 				() => this.youtubeService.ingestDailyVideoRetentionStats(TOP_N_VIDEOS, cursorStart, cursorEnd, true)
 			]
 		];
 
-		for (const [label, run] of attempts) {
-			try {
-				await run();
-				results[label] = { ok: true };
-			} catch (error: any) {
-				results[label] = { ok: false, error: error?.message ?? String(error) };
-				if (this.youtubeQuotaService.isQuotaExceededError(error)) {
-					shouldRetrySameWindow = true;
-				}
-				this.logger.warn(`YouTube backfill walk chunk ${cursorStart}..${cursorEnd} [${label}] failed: ${results[label].error}`);
+		for (const [label, jobType, run] of attempts) {
+			const outcome = await this.runLockedJob(jobType, cursorStart, cursorEnd, run);
+			results[label] = outcome;
+			if (!outcome.ok && outcome.skipped) {
+				shouldRetrySameWindow = true;
+			}
+			if (!outcome.ok && outcome.error) {
+				this.logger.warn(`YouTube backfill walk chunk ${cursorStart}..${cursorEnd} [${label}] failed: ${outcome.error}`);
 			}
 		}
 
@@ -214,7 +235,7 @@ export class YoutubeBackfillWalkService implements OnModuleInit {
 		this.lastTickAt = new Date();
 
 		if (shouldRetrySameWindow) {
-			this.logger.warn(`Chunk ${cursorStart}..${cursorEnd} hit the daily quota budget; retrying the same window next tick.`);
+			this.logger.warn(`Chunk ${cursorStart}..${cursorEnd} hit a lock conflict or the daily quota budget; retrying the same window next tick.`);
 		} else {
 			this.cursorEnd = this.shiftDate(cursorStart, -1);
 			this.logger.log(`Chunk ${cursorStart}..${cursorEnd} done. Cursor advanced to ${this.cursorEnd}.`);
@@ -222,6 +243,64 @@ export class YoutubeBackfillWalkService implements OnModuleInit {
 
 		await this.persistState();
 		this.scheduleNextTick(this.runOptions.intervalMinutes * 60_000);
+	}
+
+	/**
+	 * Claims the same (platform, jobType, entityType) lock YoutubeIngestService's cron jobs
+	 * use before running `run`, so a backfill tick and the nightly cron can never both write
+	 * for the same job at once. A lock conflict or a paused job is reported as `skipped:
+	 * 'lock'` and treated as a same-window retry next tick, not a failure -- the cron (or
+	 * another walk instance) is doing the work instead, which is the point of the lock.
+	 */
+	private async runLockedJob(
+		jobType: string,
+		cursorStart: string,
+		cursorEnd: string,
+		run: () => Promise<unknown>
+	): Promise<WalkChunkResult> {
+		const pauseState = await this.ingestionControlService.isPaused('youtube', jobType);
+		if (pauseState.paused) {
+			return { ok: false, skipped: 'lock' };
+		}
+
+		let ingestionRun;
+		try {
+			ingestionRun = await this.ingestionRunsService.createRun({
+				platform: 'youtube',
+				entityType: 'channel',
+				entityId: 'backfill_walk',
+				jobType,
+				runType: 'backfill',
+				triggerSource: 'backfill_walk',
+				scopeStartDate: cursorStart,
+				scopeEndDate: cursorEnd
+			});
+		} catch (error) {
+			if (error instanceof IngestionRunConflictError) {
+				return { ok: false, skipped: 'lock' };
+			}
+			throw error;
+		}
+
+		try {
+			await run();
+			await this.ingestionRunsService.completeRun(ingestionRun.id, {
+				entityId: 'backfill_walk',
+				scopeStartDate: cursorStart,
+				scopeEndDate: cursorEnd
+			});
+			return { ok: true };
+		} catch (error: any) {
+			await this.ingestionRunsService.failRun(ingestionRun.id, error, {
+				entityId: 'backfill_walk',
+				scopeStartDate: cursorStart,
+				scopeEndDate: cursorEnd
+			});
+			if (this.youtubeQuotaService.isQuotaExceededError(error)) {
+				return { ok: false, skipped: 'quota' };
+			}
+			return { ok: false, error: error?.message ?? String(error) };
+		}
 	}
 
 	private async persistState() {

@@ -1,12 +1,18 @@
 import { LinkedinBackfillWalkState } from '../../../database/entity';
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { IngestionControlService } from '../../shared/services/ingestion-control.service';
+import { IngestionRunConflictError, IngestionRunsService } from '../../shared/services/ingestion-runs.service';
 import { LinkedinQuotaService } from './linkedin-quota.service';
 import { LinkedinService } from './linkedin.service';
 
 type WalkChunkResult = {
 	ok: boolean;
 	error?: string;
-	skipped?: string;
+	// 'lock' = another run (usually the nightly cron) already holds this job's lock;
+	// 'quota' = the daily request budget is exhausted; 'window' = this chunk is past the
+	// 12-month share-statistics floor. All three mean "not a failure, retry/skip is expected"
+	// -- distinct from `error`, which is a real, unexpected failure.
+	skipped?: 'lock' | 'quota' | 'window';
 };
 
 type WalkStatus = 'idle' | 'running' | 'stopped' | 'completed';
@@ -33,6 +39,14 @@ const SHARE_STATISTICS_LOOKBACK_DAYS = 365;
  * second row for a day already captured. Follower statistics and organization overview are
  * NOT backfilled here -- LinkedIn's API for both is lifetime-aggregate-only, with no
  * timeIntervals equivalent, so there is no historical data to walk through.
+ *
+ * Same locking note as YoutubeBackfillWalkService: LinkedinIngestService's cron jobs claim a
+ * (platform, jobType, entityType) lock before calling these same LinkedinService methods, but
+ * that lock lives in the cron wrapper, not in LinkedinService itself -- calling it directly,
+ * as this walk needs to, would otherwise race the nightly page_statistics/share_statistics
+ * cron jobs. This walk claims the same lock ('linkedin'/'page_statistics'/'organization' and
+ * 'linkedin'/'share_statistics'/'organization') via IngestionRunsService before each call, so
+ * whichever gets there first wins the tick.
  */
 @Injectable()
 export class LinkedinBackfillWalkService implements OnModuleInit {
@@ -52,6 +66,8 @@ export class LinkedinBackfillWalkService implements OnModuleInit {
 	constructor(
 		private readonly linkedinService: LinkedinService,
 		private readonly linkedinQuotaService: LinkedinQuotaService,
+		private readonly ingestionRunsService: IngestionRunsService,
+		private readonly ingestionControlService: IngestionControlService,
 		@Inject('LINKEDIN_BACKFILL_WALK_STATE_REPOSITORY')
 		private readonly walkStateRepo: typeof LinkedinBackfillWalkState
 	) { }
@@ -197,29 +213,31 @@ export class LinkedinBackfillWalkService implements OnModuleInit {
 		const results: Record<string, WalkChunkResult> = {};
 		let shouldRetrySameWindow = false;
 
-		const attempts: Array<[string, () => Promise<unknown>]> = [
-			['pageStatistics', () => this.linkedinService.getPageStatistics(cursorStart, cursorEnd)]
+		const attempts: Array<[string, string, () => Promise<unknown>]> = [
+			['pageStatistics', 'page_statistics', () => this.linkedinService.getPageStatistics(cursorStart, cursorEnd)]
 		];
 
 		if (cursorStart >= shareStatisticsFloor) {
-			attempts.push(['shareStatistics', () => this.linkedinService.getShareStatistics(cursorStart, cursorEnd)]);
+			attempts.push([
+				'shareStatistics',
+				'share_statistics',
+				() => this.linkedinService.getShareStatistics(cursorStart, cursorEnd)
+			]);
 		} else {
 			// Chunk straddles the floor -- page statistics still covers the whole window, but
 			// share statistics would silently return nothing for the part beyond it, so skip it
 			// for this chunk rather than recording a misleading "ok" with zero rows.
-			results.shareStatistics = { ok: false, skipped: 'chunk extends past the 12-month share-statistics window' };
+			results.shareStatistics = { ok: false, skipped: 'window' };
 		}
 
-		for (const [label, run] of attempts) {
-			try {
-				await run();
-				results[label] = { ok: true };
-			} catch (error: any) {
-				results[label] = { ok: false, error: error?.message ?? String(error) };
-				if (this.linkedinQuotaService.isQuotaExceededError(error) || error?.response?.status === 429) {
-					shouldRetrySameWindow = true;
-				}
-				this.logger.warn(`LinkedIn backfill walk chunk ${cursorStart}..${cursorEnd} [${label}] failed: ${results[label].error}`);
+		for (const [label, jobType, run] of attempts) {
+			const outcome = await this.runLockedJob(jobType, cursorStart, cursorEnd, run);
+			results[label] = outcome;
+			if (!outcome.ok && outcome.skipped) {
+				shouldRetrySameWindow = true;
+			}
+			if (!outcome.ok && outcome.error) {
+				this.logger.warn(`LinkedIn backfill walk chunk ${cursorStart}..${cursorEnd} [${label}] failed: ${outcome.error}`);
 			}
 		}
 
@@ -227,7 +245,7 @@ export class LinkedinBackfillWalkService implements OnModuleInit {
 		this.lastTickAt = new Date();
 
 		if (shouldRetrySameWindow) {
-			this.logger.warn(`Chunk ${cursorStart}..${cursorEnd} hit the daily quota budget; retrying the same window next tick.`);
+			this.logger.warn(`Chunk ${cursorStart}..${cursorEnd} hit a lock conflict or the daily request budget; retrying the same window next tick.`);
 		} else {
 			this.cursorEnd = this.shiftDate(cursorStart, -1);
 			this.logger.log(`Chunk ${cursorStart}..${cursorEnd} done. Cursor advanced to ${this.cursorEnd}.`);
@@ -235,6 +253,63 @@ export class LinkedinBackfillWalkService implements OnModuleInit {
 
 		await this.persistState();
 		this.scheduleNextTick(this.runOptions.intervalMinutes * 60_000);
+	}
+
+	/**
+	 * Claims the same (platform, jobType, entityType) lock LinkedinIngestService's cron jobs
+	 * use before running `run`, so a backfill tick and the nightly cron can never both write
+	 * for the same job at once. A lock conflict or a paused job is reported as `skipped: 'lock'`
+	 * and treated as a same-window retry next tick, not a failure.
+	 */
+	private async runLockedJob(
+		jobType: string,
+		cursorStart: string,
+		cursorEnd: string,
+		run: () => Promise<unknown>
+	): Promise<WalkChunkResult> {
+		const pauseState = await this.ingestionControlService.isPaused('linkedin', jobType);
+		if (pauseState.paused) {
+			return { ok: false, skipped: 'lock' };
+		}
+
+		let ingestionRun;
+		try {
+			ingestionRun = await this.ingestionRunsService.createRun({
+				platform: 'linkedin',
+				entityType: 'organization',
+				entityId: 'backfill_walk',
+				jobType,
+				runType: 'backfill',
+				triggerSource: 'backfill_walk',
+				scopeStartDate: cursorStart,
+				scopeEndDate: cursorEnd
+			});
+		} catch (error) {
+			if (error instanceof IngestionRunConflictError) {
+				return { ok: false, skipped: 'lock' };
+			}
+			throw error;
+		}
+
+		try {
+			await run();
+			await this.ingestionRunsService.completeRun(ingestionRun.id, {
+				entityId: 'backfill_walk',
+				scopeStartDate: cursorStart,
+				scopeEndDate: cursorEnd
+			});
+			return { ok: true };
+		} catch (error: any) {
+			await this.ingestionRunsService.failRun(ingestionRun.id, error, {
+				entityId: 'backfill_walk',
+				scopeStartDate: cursorStart,
+				scopeEndDate: cursorEnd
+			});
+			if (this.linkedinQuotaService.isQuotaExceededError(error) || error?.response?.status === 429) {
+				return { ok: false, skipped: 'quota' };
+			}
+			return { ok: false, error: error?.message ?? String(error) };
+		}
 	}
 
 	private async persistState() {

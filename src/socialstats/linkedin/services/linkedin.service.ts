@@ -63,7 +63,7 @@ export class LinkedinService implements OnModuleInit {
 
 		const metricKey = 'linkedin.organization.overview';
 		try {
-			const { accessToken: _accessToken, organizationUrn } = await this.linkedinAuthService.getAccessToken();
+			const { organizationUrn } = await this.linkedinAuthService.getAccessToken();
 
 			const [networkSize, pageStats] = await Promise.all([
 				this.linkedinApiService.get<{ firstDegreeSize?: number }>(

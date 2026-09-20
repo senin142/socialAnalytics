@@ -2471,7 +2471,9 @@ export class YoutubeService implements OnModuleInit {
 			);
 			const safeTopN = this.resolveTopN(topN, 10, 50);
 			let createdCount = 0;
-			let updatedCount = 0;
+			// Always 0 -- this method skips a (video, date) pair entirely once captured rather
+			// than updating it (see alreadyCapturedVideoIds below), so there is no update path.
+			const updatedCount = 0;
 			let queriedVideosCount = 0;
 			const tierSummary = createEmptyTierSummary();
 			this.logIngestProgress(

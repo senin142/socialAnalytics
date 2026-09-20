@@ -141,9 +141,11 @@ npm run test:e2e      # e2e (needs a reachable database)
 
 ## Status and known gaps
 
-All four platforms are wired and the full DI graph boots clean.
+All four platforms are wired, the full DI graph boots clean, `nest build` is clean, and all 8 test suites (65 tests) pass.
 
-- **`meta-ingest.service.spec.ts` does not compile** — a stale constructor call in the test (23 args passed, 24 expected). Pre-existing; the other 7 suites pass (39 tests).
-- **No unit tests for TikTok or LinkedIn** — neither module came with specs.
+- **14 known vulnerabilities in production dependencies** (`npm audit --omit=dev`) — 3 high (lodash prototype pollution/code injection, multer DoS), the rest moderate. None have a fix within the current major versions; resolving them means bumping `@nestjs/core`, `@nestjs/platform-express`, `@nestjs/config`, `@nestjs/schedule`, `@nestjs/throttler` (10.x/4.x/3.x → 12.x/etc.) and `sequelize`/`sequelize-typescript` together, which is a real breaking-change upgrade this codebase hasn't been tested against. Not attempted here — needs its own dedicated pass.
+- **No unit tests for TikTok or LinkedIn** — neither module came with specs, including the newly added backfill-walk services.
 - **OAuth tokens are stored unencrypted** in `*_account_tokens` tables. Inherited from the source implementation. A database read compromise yields live platform tokens, so treat DB access accordingly; encryption at rest would need a key-management scheme this service doesn't have yet.
 - **LinkedIn and TikTok require vendor approval** before returning data. Until approved, their jobs skip quietly by design.
+- **TikTok and LinkedIn have no client-facing API** (only Meta and YouTube do) — see [docs/OVERVIEW_PAGE.md](docs/OVERVIEW_PAGE.md) if you're building a cross-platform dashboard, since this limits what a client-token page can show today.
+- **Nothing has been run against a real database yet.** Every check this session (build, boot, backfill-walk wiring) stops at the same wall: no real Postgres credentials have been provided, so none of this has been verified against live data or a live platform API.

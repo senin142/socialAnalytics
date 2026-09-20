@@ -87,6 +87,7 @@ describe('MetaIngestService', () => {
 			{} as any, // metaInstagramMediaRepo
 			accountInsightsRepo as any,
 			{} as any, // metaInstagramMediaInsightsRepo
+			{} as any, // metaInstagramStoryStatsRepo
 			{} as any, // metaVideoGeoStatsRepo
 			{} as any, // metaGeoLocationsRepo
 			metaIngestionRunsRepo as any,
