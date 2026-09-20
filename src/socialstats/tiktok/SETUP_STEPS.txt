@@ -1,0 +1,185 @@
+TIKTOK ANALYTICS SETUP — STEP BY STEP
+======================================
+
+This module is already built (auth, ingestion, endpoints, retention). It does nothing
+until you complete the steps below, because TikTok requires an approved developer app
+and an explicit consent from the account holder before it hands over any data.
+
+Read the "HOW TIKTOK IS DIFFERENT" section at the bottom before you debug anything —
+most surprises with this integration come from those four points.
+
+
+STEP 1 — Create a TikTok developer app
+----------------------------------------
+1. Go to https://developers.tiktok.com/ and register as a developer.
+2. Create an app and note its Client Key and Client Secret.
+   NOTE: TikTok calls it "client key", not "client ID". The code sends client_key —
+   sending client_id fails with an unhelpful error.
+3. Add the "Login Kit" product to the app.
+4. Add the "Display API" product to the app (this is what serves profile + video stats).
+
+
+STEP 2 — Request the scopes you actually need
+-------------------------------------------------
+In the app's Login Kit configuration, enable these scopes. The consent screen can only
+offer what the app is registered for, so missing one here means it can never be granted:
+
+  user.info.basic     - open_id, union_id, avatar, display name
+  user.info.profile   - username, bio, profile link, verified badge
+  user.info.stats     - follower_count, following_count, likes_count, video_count
+  video.list          - the account's video list and per-video engagement
+
+IMPORTANT: since TikTok's February 2024 scope migration, user.info.basic NO LONGER
+returns follower counts. If you only request basic, every call still returns HTTP 200
+and the follower numbers are simply missing. The module reports that as a permission
+gap ("unavailable_permission") rather than an error — if the dashboard shows that,
+this step is why.
+
+Some scopes require app review before they work in production. Development/sandbox
+mode works for the registered test account without review; going live needs TikTok to
+approve the app. Budget time for this like the LinkedIn approval.
+
+
+STEP 3 — Configure the redirect URI
+--------------------------------------
+TikTok needs a URL to redirect back to after the account holder approves access. It
+does not need to be a working page — a "copy this code" placeholder is enough, since
+you copy the code out of the address bar in Step 5.
+
+1. In the app dashboard, add a redirect URI, e.g.:
+   https://admin.cnbcarabia.com/tiktok-auth-callback
+2. It must be HTTPS and must match TIKTOK_REDIRECT_URI exactly — TikTok does an exact
+   string match.
+
+
+STEP 4 — Set environment variables
+--------------------------------------
+Add these to the admin-microservice environment:
+
+  TIKTOK_CLIENT_KEY      = (from Step 1)
+  TIKTOK_CLIENT_SECRET   = (from Step 1)
+  TIKTOK_REDIRECT_URI    = (from Step 3, must match exactly)
+
+Optional (defaults are fine to start):
+  TIKTOK_SCOPES                    = user.info.basic,user.info.profile,user.info.stats,video.list
+  TIKTOK_REQUESTS_PER_MINUTE       = 600    (TikTok's per-app sliding-window limit)
+  TIKTOK_DAILY_REQUEST_BUDGET      = 10000  (our own backstop, not TikTok's)
+  TIKTOK_MAX_VIDEO_PAGES           = 5      (20 videos per page, so 100 videos per run)
+  TIKTOK_DATA_RETENTION_DAYS       = 90     (see RETENTION below)
+  TIKTOK_TOKEN_REFRESH_BUFFER_MS   = 1800000 (refresh when <30 min of token life remains)
+  TIKTOK_HTTP_TIMEOUT_MS           = 15000
+
+Restart admin-microservice after setting these.
+
+
+STEP 5 — Authorize the app (one-time, as the CNBC Arabia TikTok account)
+-----------------------------------------------------------------------------
+You must be logged into TikTok as the CNBC Arabia account when you do this — the token
+is bound to whichever account approves the consent screen.
+
+1. Call (with your admin JWT):
+     GET /admin/api/admin/socialstats/tiktok/auth/authorize-url
+   This returns an "authorizeUrl".
+
+2. Open that URL in a browser logged in as the CNBC Arabia TikTok account. Approve the
+   consent screen. Make sure every requested scope is ticked — TikTok lets the user
+   decline individual scopes, and a declined user.info.stats means no follower data.
+
+3. TikTok redirects to TIKTOK_REDIRECT_URI with a "code" AND a "state" in the address bar:
+     https://admin.cnbcarabia.com/tiktok-auth-callback?code=abc123...&state=xyz...
+   Copy BOTH values (each is everything after the = and before the next &).
+
+4. Call:
+     POST /admin/api/admin/socialstats/tiktok/auth/exchange
+     body: { "code": "<paste the code>", "state": "<paste the state>" }
+
+   The state is verified server-side and both values are required. It is signed with
+   JWT_SECRET and valid for 15 minutes, so if you take too long between steps 1 and 4
+   you will get an "expired" error — just start again from step 1. Do not hand-edit it.
+
+The response shows which scopes were actually granted — check them against Step 2.
+
+
+STEP 6 — Verify it's working
+--------------------------------
+1. GET  .../tiktok/auth/config      -> clientKeyConfigured: true, etc.
+2. GET  .../tiktok/auth/status      -> authorized: true, and an expiresAt ~24h out
+3. GET  .../tiktok/account/overview -> real follower counts, not nulls
+4. GET  .../tiktok/videos/statistics
+5. GET  /admin/api/admin/socialstats/ingestion/status?platform=tiktok
+   after the next night's crons (02:10 and 02:20 server time).
+
+
+HOW TIKTOK IS DIFFERENT (read this before debugging)
+=========================================================
+
+1. ACCESS TOKENS LAST 24 HOURS
+   Not 60 days like LinkedIn. But unlike LinkedIn, TikTok DOES give ordinary apps a
+   refresh token, so this renews itself — a cron refreshes every 6 hours and the read
+   path refreshes on demand. You should not need to redo Step 5 routinely.
+
+2. REFRESH TOKENS ROTATE, AND EXPIRE AFTER 365 DAYS
+   Every refresh returns a NEW refresh token and kills the old one. The code persists
+   the new one on every refresh. The 365-day clock is the real deadline: if nothing
+   refreshes the token for a year, you must redo Step 5. The auth/status endpoint
+   shows refreshTokenExpiresAt — worth an alert nearer the time.
+
+3. ERRORS COME BACK AS HTTP 200
+   TikTok reports most failures with a 200 and an `error` object in the body, where
+   error.code === "ok" means success. The API service checks that explicitly. If you
+   add a new endpoint here, do NOT assume a 200 means it worked.
+
+4. THE RATE LIMIT IS PER-MINUTE, NOT PER-DAY
+   Roughly 600 requests/minute per app over a sliding window. The quota service
+   enforces this locally before each call. GET .../tiktok/rate-limits shows the
+   current minute window and the day's usage.
+
+
+RETENTION — DO NOT REMOVE THIS
+===================================
+TikTok's Developer Terms require that stored TikTok data be kept current, and that data
+be dropped when the creator deletes the content or withdraws the app's access. Two
+things discharge that:
+
+  - A nightly purge (03:45) deletes videos TikTok no longer lists for the account and
+    ages out snapshots past TIKTOK_DATA_RETENTION_DAYS.
+  - POST .../tiktok/auth/revoke  { "confirm": true }  revokes the token AND deletes all
+    stored TikTok profile/video rows. Super Admin only.
+
+TIKTOK_DATA_RETENTION_DAYS defaults to 90. That is a conservative house default, NOT a
+number TikTok publishes — confirm the window with whoever owns the platform agreement
+before widening it.
+
+Also note: cover image and embed URLs from TikTok are signed and short-lived (hours).
+They are stored for convenience only and must be treated as stale on read — never
+surface them as permanent links, and never download and re-host the media itself.
+
+
+KNOWN LIMITATION — RATE LIMITS AND CACHE ARE PER-INSTANCE
+==============================================================
+All three of these live in each process's memory, not in a shared store, so they do not
+hold across replicas:
+
+  - The per-minute window. On N replicas the app can emit up to N x 600 requests/minute
+    and each instance will still believe it is under the limit.
+  - The daily counter. It is written to the database but only re-read when the date
+    rolls over, so each instance mostly counts its own calls.
+  - The 10-minute response cache. After POST auth/revoke, sibling instances can keep
+    serving cached TikTok analytics until their own cache entries expire.
+
+Practical guidance until this moves to a shared store:
+  - Divide TIKTOK_REQUESTS_PER_MINUTE and TIKTOK_DAILY_REQUEST_BUDGET by the replica
+    count when tuning them.
+  - After revoking, either restart the service or wait out the cache TTL before
+    treating the data as gone from the read path. The database rows are deleted
+    immediately and permanently by the revoke call itself — this only affects what a
+    sibling instance may still serve from memory for a few minutes.
+
+
+WHAT'S NOT BUILT YET
+==========================
+- Audience demographics (age/gender/country breakdowns). These are NOT in the Display
+  API — they need the separate TikTok API for Business, which is a different app type,
+  a different approval, and a different base URL. A real project in its own right.
+- Per-video time-series charting in the admin dashboard (this covers the backend only).
+- The Angular admin dashboard tiles.

@@ -1,0 +1,149 @@
+LINKEDIN ANALYTICS SETUP — STEP BY STEP
+========================================
+
+This module is already built (auth, ingestion, endpoints). It does nothing until you
+complete the steps below, because LinkedIn requires app approval before it will hand
+over any organization analytics data. Follow these in order.
+
+
+STEP 1 — Create a LinkedIn developer app
+-----------------------------------------
+1. Go to https://developer.linkedin.com/ and create an app.
+2. Link it to the CNBC Arabia LinkedIn Company Page (you must be an admin of that page).
+3. Note down the app's Client ID and Client Secret — you'll need them in Step 4.
+
+
+STEP 2 — Apply for Community Management API access
+-----------------------------------------------------
+This is the part that takes time — LinkedIn has to approve it, this is not instant.
+
+1. In your app's dashboard, request the "Community Management API" product.
+   - You get "Development Tier" first (limited: 500 requests/day, 100/day per member).
+   - This is enough to build and test everything.
+2. When you're ready to go live, apply to upgrade to "Standard Tier".
+   - LinkedIn asks for a screencast video showing the use case (reading follower/page/
+     share analytics for the org page) before approving this.
+3. Do NOT skip this step and try to call the API anyway — it will just fail with a
+   permission error. There is no way around the approval process.
+
+
+STEP 3 — Configure the redirect URI
+--------------------------------------
+LinkedIn needs a URL to redirect back to after an admin approves access. It does not
+need to be a real working page — a simple "copy this code" placeholder page is enough,
+because you'll manually copy the code out of the browser's address bar in Step 5.
+
+1. In the LinkedIn app dashboard, under "Auth", add a redirect URL, e.g.:
+   https://admin.cnbcarabia.com/linkedin-auth-callback
+2. This exact URL must match LINKEDIN_REDIRECT_URI in Step 4 — LinkedIn checks for an
+   exact match.
+
+
+STEP 4 — Set environment variables
+--------------------------------------
+Add these to the admin-microservice environment (.env or wherever secrets are set):
+
+  LINKEDIN_CLIENT_ID           = (from Step 1)
+  LINKEDIN_CLIENT_SECRET       = (from Step 1)
+  LINKEDIN_REDIRECT_URI        = (from Step 3, must match exactly)
+  LINKEDIN_ORGANIZATION_ID     = (the numeric ID of the CNBC Arabia LinkedIn page —
+                                   found in the page's admin URL, e.g.
+                                   linkedin.com/company/12345678/admin/ -> 12345678)
+
+Optional (defaults are fine to start):
+  LINKEDIN_API_VERSION                 = 202608 (bump periodically, see note below)
+  LINKEDIN_DAILY_APP_REQUEST_BUDGET    = 500    (raise once Standard Tier is approved)
+  LINKEDIN_DAILY_MEMBER_REQUEST_BUDGET = 100    (raise once Standard Tier is approved)
+
+NOTE ON THE TWO BUDGETS: Development Tier allows 500 requests/app/day but only 100
+requests/member/day. Everything here is called with the single admin token from Step 5,
+so every request counts against BOTH, and the 100 member cap is the one you will hit
+first. The code enforces the lower of the two. Raise both together after approval.
+
+NOTE ON REPLICAS: these budgets are counted per running instance, not cluster-wide (see
+"KNOWN LIMITATION" at the bottom).
+
+Restart admin-microservice after setting these.
+
+
+STEP 5 — Authorize the app (one-time, do this yourself as a page admin)
+----------------------------------------------------------------------------
+You must be logged in as a page ADMINISTRATOR of the CNBC Arabia LinkedIn page to
+do this step — not just any LinkedIn account.
+
+1. Call (as an admin user, via Postman/browser with your admin JWT):
+     GET /admin/api/admin/socialstats/linkedin/auth/authorize-url
+   This returns an "authorizeUrl".
+
+2. Open that URL in your browser. LinkedIn will show a consent screen listing what
+   this app wants to access. Approve it.
+
+3. LinkedIn redirects you to LINKEDIN_REDIRECT_URI with a "code" AND a "state" in the
+   address bar, e.g.:
+     https://admin.cnbcarabia.com/linkedin-auth-callback?code=AQT...&state=...
+   Copy BOTH values (each is everything after the = and before the next &).
+
+4. Call:
+     POST /admin/api/admin/socialstats/linkedin/auth/exchange
+     body: { "code": "<paste the code>", "state": "<paste the state>" }
+   This exchanges the code for an access token and stores it in the database.
+
+   The state is verified server-side and both values are required. It is signed with
+   JWT_SECRET and valid for 15 minutes, so if you take too long between steps 1 and 4
+   you will get an "expired" error — just start again from step 1. Do not hand-edit it.
+
+That's it — you don't need to repeat this unless the token expires (see below).
+
+
+STEP 6 — Verify it's working
+--------------------------------
+1. GET /admin/api/admin/socialstats/linkedin/auth/config
+   -> should show organizationConfigured: true and clientIdConfigured: true
+
+2. GET /admin/api/admin/socialstats/linkedin/organization/overview
+   -> should return real follower count / page view data, not an error
+
+3. Check /admin/api/admin/socialstats/ingestion/status?platform=linkedin after the
+   next day's cron runs (around 01:10–01:40 server time) — it should show fresh data.
+
+
+IMPORTANT — TOKEN EXPIRY (read this, it WILL come up again)
+----------------------------------------------------------------
+Unlike Google/Meta, standard-tier LinkedIn apps do NOT get a refresh token. The
+access token from Step 5 expires after ~60 days, and LinkedIn does not let it renew
+itself automatically.
+
+When it expires, every LinkedIn endpoint will start returning an error telling you
+to re-authorize. When that happens, just repeat STEP 5 again — takes 2 minutes.
+
+(If LinkedIn later approves this app for their Marketing Developer Platform partner
+program, refresh tokens become available and this stops being a manual step — not
+worth pursuing unless this becomes a real pain point.)
+
+
+NOTE — API VERSION
+------------------------
+LinkedIn requires every request to send a "LinkedIn-Version: YYYYMM" header, and each
+monthly version is only supported for about a year before it's sunset. The code
+defaults to 202608. If you start seeing "unsupported version" errors down the line,
+bump LINKEDIN_API_VERSION to a more recent YYYYMM value — check
+https://learn.microsoft.com/en-us/linkedin/marketing/versioning for what's current.
+
+
+KNOWN LIMITATION — QUOTA COUNTING IS PER-INSTANCE
+------------------------------------------------------
+The daily request counter is cached in each process's memory and only re-read from the
+database when the date rolls over. On more than one replica, each instance therefore
+tracks mostly its own calls, so the real cluster-wide usage can be up to N times what
+any single instance reports, where N is the replica count.
+
+Until this moves to a shared store, divide the budgets above by your replica count when
+tuning them (e.g. 2 replicas on Development Tier -> set the member budget to 50). The
+same caveat applies to the TikTok module's limits.
+
+
+WHAT'S NOT BUILT YET
+--------------------------
+- Per-post (individual share) engagement breakdown — needs the separate Posts API to
+  first list the org's post URNs. Only account-wide daily totals are ingested today.
+- The Angular admin dashboard tiles (this setup only covers the backend/API side).

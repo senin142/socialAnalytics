@@ -1,0 +1,28 @@
+# compiled output
+/dist
+/node_modules
+
+# logs
+*.log
+npm-debug.log*
+/logs
+
+# reference material — not part of this project's deliverable
+/socialAnalytics
+/_old-scaffold-backup
+
+# env
+.env
+.env.*.local
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# OS
+.DS_Store
+
+# tests
+/coverage
+/test/**/*.spec.js
