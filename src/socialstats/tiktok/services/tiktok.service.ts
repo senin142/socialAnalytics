@@ -80,6 +80,29 @@ export class TiktokService implements OnModuleInit {
 		await this.tiktokVideoStatsRepo.sync();
 	}
 
+	/** Lightweight live check: confirms the configured credentials actually authenticate
+	 * against TikTok right now (one minimal user/info call), without persisting a snapshot
+	 * like getAccountOverview below — this exists purely to answer "do these credentials
+	 * work". */
+	async verifyCredentials() {
+		const checkedAt = new Date().toISOString();
+		try {
+			const user = await this.tiktokApiService.get<{ user?: Record<string, any> }>('/user/info/', {
+				fields: ['open_id', 'display_name'],
+				endpointLabel: 'tiktok.auth.verify'
+			});
+			const profile = user?.user ?? {};
+			return {
+				valid: true,
+				openId: profile.open_id ?? null,
+				displayName: profile.display_name ?? null,
+				checkedAt
+			};
+		} catch (err: any) {
+			return { valid: false, reason: this.tiktokApiService.getErrorMessage(err), checkedAt };
+		}
+	}
+
 	async getAccountOverview() {
 		const cacheKey = 'tiktok:account-overview';
 		const cached = this.getFromCache(cacheKey);

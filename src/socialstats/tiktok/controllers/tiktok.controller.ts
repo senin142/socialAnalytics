@@ -26,6 +26,17 @@ export class TiktokController {
 
 	@UseGuards(JwtAuthGuard)
 	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Get('auth/verify')
+	async verifyCredentials() {
+		return {
+			statusCode: 200,
+			message: 'TikTok credential verification completed',
+			data: await this.tiktokService.verifyCredentials()
+		};
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
 	@Get('auth/authorize-url')
 	getAuthorizeUrl() {
 		// TikTok redirects back to TIKTOK_REDIRECT_URI as a plain browser navigation carrying

@@ -26,6 +26,17 @@ export class LinkedinController {
 
 	@UseGuards(JwtAuthGuard)
 	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Get('auth/verify')
+	async verifyCredentials() {
+		return {
+			statusCode: 200,
+			message: 'LinkedIn credential verification completed',
+			data: await this.linkedinService.verifyCredentials()
+		};
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
 	@Get('auth/authorize-url')
 	getAuthorizeUrl() {
 		// LinkedIn's redirect back to LINKEDIN_REDIRECT_URI carries the `code` as a query

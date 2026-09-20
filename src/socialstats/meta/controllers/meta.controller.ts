@@ -46,6 +46,17 @@ export class MetaController {
 
 	@UseGuards(JwtAuthGuard)
 	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Get('auth/verify')
+	async verifyCredentials(@Query('pageId') pageId?: string) {
+		return {
+			statusCode: 200,
+			message: 'Meta credential verification completed',
+			data: await this.metaAuthService.verifyCredentials(pageId)
+		};
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
 	@Post('auth/exchange-user-token')
 	async exchangeUserToken(@Body('shortLivedUserToken') shortLivedUserToken?: string) {
 		return await this.metaAuthService.exchangeUserToken(shortLivedUserToken || '');

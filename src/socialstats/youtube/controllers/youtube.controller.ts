@@ -29,6 +29,17 @@ export class YoutubeController {
 
 	@UseGuards(JwtAuthGuard)
 	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Get('auth/verify')
+	async verifyCredentials() {
+		return {
+			statusCode: 200,
+			message: 'YouTube credential verification completed',
+			data: await this.youtubeService.verifyCredentials()
+		};
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
 	@Get('auth/debug')
 	async getAuthDebugInfo() {
 		return await this.youtubeService.getAuthDebugInfo();

@@ -121,6 +121,41 @@ export class LinkedinService implements OnModuleInit {
 		}
 	}
 
+	/** Lightweight live check: confirms the configured credentials actually authenticate
+	 * against LinkedIn right now (one minimal networkSizes call), without writing a
+	 * snapshot or touching data-coverage tracking like the ingest-facing methods above —
+	 * this exists purely to answer "do these credentials work". */
+	async verifyCredentials() {
+		const checkedAt = new Date().toISOString();
+		const config = this.linkedinAuthService.getConfigurationStatus();
+		if (!config.clientIdConfigured || !config.clientSecretConfigured) {
+			return {
+				valid: false,
+				reason: 'LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET not configured',
+				checkedAt
+			};
+		}
+
+		try {
+			const { organizationUrn } = await this.linkedinAuthService.getAccessToken();
+			const networkSize = await this.linkedinApiService.get<{ firstDegreeSize?: number }>(
+				`/networkSizes/${encodeURIComponent(organizationUrn)}`,
+				{
+					params: { edgeType: 'COMPANY_FOLLOWED_BY_MEMBER' },
+					endpointLabel: 'linkedin.auth.verify'
+				}
+			);
+			return {
+				valid: true,
+				organizationUrn,
+				followerCount: networkSize?.firstDegreeSize ?? null,
+				checkedAt
+			};
+		} catch (err: any) {
+			return { valid: false, reason: this.describeError(err), checkedAt };
+		}
+	}
+
 	/** Lifetime follower statistics, segmented by the 7 professional-demographic facets. */
 	async getFollowerStatistics() {
 		const cacheKey = 'linkedin:follower-statistics';

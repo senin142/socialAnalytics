@@ -124,6 +124,39 @@ export class YoutubeService implements OnModuleInit {
 		}
 	}
 
+	/** Lightweight live check: confirms the configured credentials actually authenticate
+	 * against the YouTube Data API right now (one minimal channels.list call, 1 quota unit),
+	 * without touching the response cache getChannelStats above uses — this exists purely to
+	 * answer "do these credentials work". */
+	async verifyCredentials() {
+		const checkedAt = new Date().toISOString();
+		try {
+			const token = await this.youtubeAuthService.getAccessToken();
+			const response = await this.timedGet(
+				'youtube.auth.verify',
+				'https://www.googleapis.com/youtube/v3/channels',
+				{
+					headers: {
+						Authorization: `Bearer ${token.accessToken}`
+					},
+					params: {
+						part: 'id,snippet',
+						mine: true
+					}
+				}
+			);
+			const channel = response.data?.items?.[0];
+			return {
+				valid: true,
+				channelId: channel?.id ?? null,
+				channelTitle: channel?.snippet?.title ?? null,
+				checkedAt
+			};
+		} catch (err: any) {
+			return { valid: false, reason: this.getErrorMessage(err), checkedAt };
+		}
+	}
+
 	async getAuthDebugInfo() {
 		const auth = await this.youtubeAuthService.getAuthDebugInfo();
 		return {

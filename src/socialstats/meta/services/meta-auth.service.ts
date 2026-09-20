@@ -57,6 +57,51 @@ export class MetaAuthService {
 		};
 	}
 
+	/** Lightweight live check: confirms the configured credentials actually authenticate
+	 * against the Meta Graph API right now (one minimal page-fields call), without touching
+	 * ingestion/data-coverage tracking — this exists purely to answer "do these credentials
+	 * work". */
+	async verifyCredentials(pageId?: string) {
+		const checkedAt = new Date().toISOString();
+		const config = this.getConfigurationStatus().data;
+		if (!config.appIdConfigured || !config.appSecretConfigured) {
+			return {
+				valid: false,
+				reason: 'META_APP_ID/META_APP_SECRET not configured',
+				checkedAt
+			};
+		}
+
+		try {
+			const pageTokenRow = await this.getEffectivePageToken(pageId);
+			const response = await this.metaApiService.get<{ id: string; name?: string }>(
+				`/${pageTokenRow.pageId}`,
+				{
+					accessToken: pageTokenRow.accessToken,
+					params: { fields: 'id,name' },
+					endpointLabel: 'meta.auth.verify'
+				}
+			);
+			return {
+				valid: true,
+				pageId: response.id,
+				pageName: response.name ?? null,
+				tokenSource: config.bootstrapMode,
+				checkedAt
+			};
+		} catch (error: any) {
+			return {
+				valid: false,
+				reason:
+					error?.response?.data?.error?.message ||
+					error?.response?.data?.message ||
+					error?.message ||
+					'Unknown Meta API error',
+				checkedAt
+			};
+		}
+	}
+
 	async exchangeUserToken(shortLivedUserToken: string) {
 		if (!shortLivedUserToken) {
 			throw new BadRequestException('shortLivedUserToken is required');
