@@ -114,8 +114,12 @@ export class MetaIngestService implements OnModuleInit {
 		candidates: string[];
 		geoType: 'country' | 'city';
 	}> = [
-		{ metricKey: 'page_fans_country', candidates: ['page_fans_country'], geoType: 'country' },
-		{ metricKey: 'page_fans_city', candidates: ['page_fans_city'], geoType: 'city' }
+		// page_fans_country/page_fans_city were deprecated 2025-11-15 in favor of
+		// page_follows_country/page_follows_city (same fallback pattern as page_follows
+		// above) — try the new field first, fall back to the old one for accounts still
+		// being served it.
+		{ metricKey: 'page_fans_country', candidates: ['page_follows_country', 'page_fans_country'], geoType: 'country' },
+		{ metricKey: 'page_fans_city', candidates: ['page_follows_city', 'page_fans_city'], geoType: 'city' }
 	];
 
 	constructor(
