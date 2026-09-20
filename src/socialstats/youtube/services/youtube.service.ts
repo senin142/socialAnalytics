@@ -2008,12 +2008,13 @@ export class YoutubeService implements OnModuleInit {
 	async ingestDailyVideoRetentionStats(
 		topN = 10,
 		startDate?: string,
-		endDate?: string
+		endDate?: string,
+		force = false
 	) {
 		try {
 			this.logIngestProgress(
 				'video_retention',
-				`started retention ingest topN=${topN} startDate=${startDate ?? 'auto'} endDate=${endDate ?? 'auto'}`
+				`started retention ingest topN=${topN} startDate=${startDate ?? 'auto'} endDate=${endDate ?? 'auto'} force=${force}`
 			);
 			const token = await this.youtubeAuthService.getAccessToken();
 			const channelId = await this.getOwnChannelId(token.accessToken);
@@ -2041,7 +2042,13 @@ export class YoutubeService implements OnModuleInit {
 			for (const [index, videoId] of videoIds.entries()) {
 				const tier = classifyContentTier(videoDetailsMap[videoId]?.snippet?.publishedAt ?? null);
 				tierSummary[tier]++;
-				const due = isRefreshDue(tier, lastCapturedAtByVideoId.get(videoId) ?? null);
+				// isRefreshDue exists to stop the live/cron path re-fetching a video whose
+				// retention curve was already captured recently -- correct there, but exactly
+				// wrong for a backfill walk asking for a specific historical window, which needs
+				// that window's data regardless of when the video was last touched. `force`
+				// bypasses the freshness check while still respecting the quota throttle below,
+				// which is a resource-budget concern rather than a data-freshness one.
+				const due = force || isRefreshDue(tier, lastCapturedAtByVideoId.get(videoId) ?? null);
 				const throttled = tier !== 'hot' && (await this.shouldThrottleLowerPriorityYoutubeWork());
 				if (!due || throttled) {
 					if (due && throttled) {
@@ -2049,7 +2056,7 @@ export class YoutubeService implements OnModuleInit {
 					}
 					this.logIngestProgress(
 						'video_retention',
-						`skipping video ${index + 1}/${videoIds.length}: videoId=${videoId} tier=${tier} due=${due} throttled=${throttled}`
+						`skipping video ${index + 1}/${videoIds.length}: videoId=${videoId} tier=${tier} due=${due} throttled=${throttled} force=${force}`
 					);
 					continue;
 				}

@@ -13,6 +13,35 @@ When something looks broken, run `auth/verify` first. It distinguishes "not conf
 
 ---
 
+## Historical backfill
+
+Three platforms can backfill; one can't, and it isn't a gap in this codebase — TikTok's own API has nothing to backfill *from*. Each backfill-capable platform has an identical **backfill walk**: it steps a fixed-size date window backward from a start date, one chunk per tick, until a deadline you set. Progress is persisted, so a restart resumes rather than drops it. All three share one shape:
+
+```
+POST .../{platform}/ingest/backfill-walk/start
+  body: { deadline: "2026-12-01T00:00:00Z" (required, ISO),
+          startDate?: "2026-09-01" (default: today),
+          chunkDays?: number (default 14), intervalMinutes?: number (default 30) }
+
+GET  .../{platform}/ingest/backfill-walk/status
+POST .../{platform}/ingest/backfill-walk/stop
+```
+
+`deadline` is a wall-clock stop time, not a target date — the walk runs until either it reaches the deadline or an admin stops it, and it's typically hours-to-days away for a real backfill (giving the walk enough ticks to get through your desired history), not minutes. Watch `lastResult` in the status response; a job repeatedly failing the same way across many ticks means something needs fixing, not more patience.
+
+**Why chunked and ticked, rather than one large request:** every platform here rate-limits, and most cap how much history a single call can return anyway. Small chunks on a timer let the walk cooperate with whatever's already running on the regular cron schedule instead of racing it, and a chunk that hits a rate limit or quota wall just retries next tick rather than failing the whole run.
+
+| Platform | Backfills | Hard limit | Notes |
+|---|---|---|---|
+| **Meta** | Profile + content snapshots | None documented for content; **audience geo is lifetime-only** — Meta's API returns today's distribution regardless of date requested, so geo snapshots are skipped during backfill rather than faked | `pageId`/`instagramId` optional in the start body, default to your `.env` values |
+| **YouTube** | Geo/device breakdown, per-video geography, video retention (forced) | None documented for `reports.query` | Retention normally skips a video captured recently (a freshness rule meant for the live path); the walk passes `force: true` to bypass it, since a backfill request means "I want this window regardless" |
+| **LinkedIn** | Page statistics, share statistics | **Share statistics: rolling 12-month window** (LinkedIn's own limit — older requests just return nothing). Page statistics has no documented window | The walk stops itself once the cursor passes the 12-month floor — there's nothing further it can usefully do. Follower statistics and organization overview are **not backfillable at all**: LinkedIn only exposes those as lifetime aggregates, with no time-bound query for either |
+| **TikTok** | — | — | **Not possible.** The Display API's `/user/info/` and `/video/list/` are both current-state snapshots with no historical query parameter — there's no date range to ask for. Data here only exists from whenever your own ingestion started; that's a platform limitation, not something a walk could work around |
+
+A repeated or overlapping backfill chunk won't duplicate rows — LinkedIn's page/share statistics writes were changed to check for an existing row on that day before inserting, specifically so a walk retrying a rate-limited chunk (or overlapping the daily cron) doesn't double-count. Meta and YouTube's underlying jobs were already either idempotent per day or safely re-runnable.
+
+---
+
 ## Meta — Facebook + Instagram
 
 Largest module in the service. Covers Facebook Pages (posts, reels, video metrics, page insights) and Instagram Business accounts (media, stories, audience insights), plus geographic breakdowns for both.
@@ -64,7 +93,7 @@ Tunable via `META_RATE_LIMIT_USAGE_THRESHOLD_PERCENT` (default 80) and `META_RAT
 - **Metric names churn constantly.** Meta retires Page Insights metrics on a rolling schedule. The ingest service handles this with *candidate arrays* — each metric lists fallbacks and tries them in order, so a deprecation degrades to a logged warning and a `data_coverage` record rather than a crash. When adding metrics, follow that pattern.
 - **`page_fans_country` / `page_fans_city` were deprecated 2025-11-15** in favour of `page_follows_country` / `page_follows_city`. Both are configured as candidates.
 - **Instagram `impressions` is gone** for stories and most media types, consolidated into `views` from v22.0. Already reflected in the metric sets.
-- **Backfill is limited.** Audience geo is a lifetime snapshot — the API only returns *today's* distribution, so historical geo backfill would fabricate data. The code deliberately refuses to do it.
+- **Backfill exists but skips audience geo.** See [Historical backfill](#historical-backfill) above — the walk covers profile and content snapshots; geo is a lifetime snapshot (the API only returns *today's* distribution regardless of the date requested), so historical geo backfill would fabricate data and the code refuses to do it.
 
 ---
 
@@ -120,6 +149,7 @@ Check state at `GET .../youtube/quota/status`.
 - **YouTube changed how views are counted on 2026-08-24.** A view now registers the moment playback begins — including autoplay and hover — replacing the old engagement-threshold rule for Shorts. Any view-count series spanning that date has a **step change that is a policy artifact, not growth.** The service already collects `engagedViews` alongside `views`; use that for like-for-like comparisons across the boundary, and annotate the date on your charts.
 - **Analytics data lags 2–3 days.** Don't treat a gap at the right edge of a chart as a failure.
 - **`dislikeCount` has been owner-only since 2021.** The dislike figures here come from the Analytics API, which still reports them for your own channel.
+- **Backfill reaches as far back as your channel exists** — see [Historical backfill](#historical-backfill) above. Retention backfill uses a `force` flag to bypass a freshness check meant for the live/cron path; that flag doesn't exist on the plain manual `retention/ingest-daily` trigger unless you pass `?force=true` explicitly.
 
 ---
 
@@ -170,6 +200,7 @@ Access tokens last **24 hours**; refresh tokens last **365 days** and **rotate o
 - **Since the February 2024 scope migration, `user.info.basic` no longer returns follower counts.** You need `user.info.stats`. Without it every call still returns 200 and the numbers are simply absent; the module reports this as `unavailable_permission`.
 - **The retention sweep is a Terms obligation, not an optimisation.** It drops content the creator deleted and ages out old snapshots. `POST auth/revoke` similarly revokes *and* purges — keeping harvested analytics after revoking access would not satisfy TikTok's terms.
 - Documented rate limit is **600 requests/minute**, applied per endpoint. `TIKTOK_REQUESTS_PER_MINUTE` in `.env.example` is set conservatively; raise it if you increase ingestion frequency.
+- **No historical backfill, and there isn't a way to add one.** See [Historical backfill](#historical-backfill) above — Display API's `/user/info/` and `/video/list/` are both current-state only, with no date parameter. History here only exists from whenever your own ingestion started.
 
 ---
 
@@ -217,6 +248,7 @@ Current default is **`202608`**. This needs bumping roughly annually — put a c
 - **Access tokens last ~60 days, and refresh tokens are gated behind Marketing Developer Platform partner approval.** Without partner status you re-authorise manually every two months. Plan for it — this catches teams out.
 - **Quota defaults match Development Tier** (500/day app, 100/day member). Raise `LINKEDIN_DAILY_APP_REQUEST_BUDGET` after Standard Tier approval, or the local guard will throttle you below your real allowance.
 - `edgeType=COMPANY_FOLLOWED_BY_MEMBER` (uppercase) is required from v202305 onward. The older `CompanyFollowedByMember` spelling is not retrocompatible.
+- **Backfill only reaches 12 months back, and only for page/share statistics.** See [Historical backfill](#historical-backfill) above — LinkedIn's own share-statistics endpoint enforces a rolling 12-month window, and follower statistics/organization overview have no historical query at all.
 
 ---
 

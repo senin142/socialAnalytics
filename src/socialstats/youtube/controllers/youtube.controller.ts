@@ -2,12 +2,14 @@ import { JwtAuthGuard, Roles } from '../../../auth';
 import { RoleTypes } from '../../../enums';
 import {
 	BadRequestException,
+	Body,
 	Controller,
 	Get,
 	Post,
 	Query,
 	UseGuards
 } from '@nestjs/common';
+import { YoutubeBackfillWalkService } from '../services/youtube-backfill-walk.service';
 import { YoutubeQuotaService } from '../services/youtube-quota.service';
 import { YoutubeReachService } from '../services/youtube-reach.service';
 import { YoutubeService } from '../services/youtube.service';
@@ -17,7 +19,8 @@ export class YoutubeController {
 	constructor(
 		private youtubeService: YoutubeService,
 		private youtubeQuotaService: YoutubeQuotaService,
-		private youtubeReachService: YoutubeReachService
+		private youtubeReachService: YoutubeReachService,
+		private youtubeBackfillWalkService: YoutubeBackfillWalkService
 	) { }
 
 	@UseGuards(JwtAuthGuard)
@@ -87,6 +90,38 @@ export class YoutubeController {
 	@Post('reach-reports/ingest')
 	async ingestReachReports() {
 		return await this.youtubeReachService.syncNewReports();
+	}
+
+	/**
+	 * Starts an in-process background walk that steps a fixed-size date window backward,
+	 * one chunk per tick, backfilling geo/device breakdown, per-video geography, and (forced)
+	 * video retention for each window until `deadline`. Returns immediately; progress is
+	 * polled via backfill-walk/status. See YoutubeBackfillWalkService for retry semantics.
+	 */
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Post('ingest/backfill-walk/start')
+	async startBackfillWalk(@Body() body: Record<string, unknown>) {
+		return await this.youtubeBackfillWalkService.start({
+			chunkDays: typeof body.chunkDays === 'number' ? body.chunkDays : undefined,
+			intervalMinutes: typeof body.intervalMinutes === 'number' ? body.intervalMinutes : undefined,
+			deadline: typeof body.deadline === 'string' ? body.deadline : undefined,
+			startDate: typeof body.startDate === 'string' ? body.startDate : undefined
+		});
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Get('ingest/backfill-walk/status')
+	getBackfillWalkStatus() {
+		return this.youtubeBackfillWalkService.getStatus();
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Post('ingest/backfill-walk/stop')
+	async stopBackfillWalk() {
+		return await this.youtubeBackfillWalkService.stop();
 	}
 
 	@UseGuards(JwtAuthGuard)
@@ -572,12 +607,14 @@ export class YoutubeController {
 	async ingestDailyRetention(
 		@Query('topN') topN?: string,
 		@Query('startDate') startDate?: string,
-		@Query('endDate') endDate?: string
+		@Query('endDate') endDate?: string,
+		@Query('force') force?: string
 	) {
 		return await this.youtubeService.ingestDailyVideoRetentionStats(
 			topN ? Number(topN) : undefined,
 			startDate,
-			endDate
+			endDate,
+			force === 'true'
 		);
 	}
 

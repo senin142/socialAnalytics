@@ -42,6 +42,8 @@ import { TiktokAccountTokens } from './entities/tiktok.account.tokens.entity';
 import { TiktokAccountStats } from './entities/tiktok.account.stats.entity';
 import { TiktokApiUsage } from './entities/tiktok.api.usage.entity';
 import { TiktokVideoStats } from './entities/tiktok.video.stats.entity';
+import { YoutubeBackfillWalkState } from './entities/youtube.backfill.walk.state.entity';
+import { LinkedinBackfillWalkState } from './entities/linkedin.backfill.walk.state.entity';
 
 export * from './lib/entity.module';
 
@@ -89,6 +91,8 @@ export * from './entities/tiktok.account.tokens.entity';
 export * from './entities/tiktok.account.stats.entity';
 export * from './entities/tiktok.api.usage.entity';
 export * from './entities/tiktok.video.stats.entity';
+export * from './entities/youtube.backfill.walk.state.entity';
+export * from './entities/linkedin.backfill.walk.state.entity';
 
 export const Entities = [
   IngestionRuns,
@@ -135,4 +139,6 @@ export const Entities = [
   TiktokAccountStats,
   TiktokApiUsage,
   TiktokVideoStats,
+  YoutubeBackfillWalkState,
+  LinkedinBackfillWalkState,
 ];

@@ -5,6 +5,7 @@ import { SocialStatsSharedModule } from '../shared/socialstats-shared.module';
 import { LinkedinController } from './controllers/linkedin.controller';
 import { LinkedinApiService } from './services/linkedin-api.service';
 import { LinkedinAuthService } from './services/linkedin-auth.service';
+import { LinkedinBackfillWalkService } from './services/linkedin-backfill-walk.service';
 import { LinkedinIngestService } from './services/linkedin-ingest.service';
 import { LinkedinQuotaService } from './services/linkedin-quota.service';
 import { LinkedinService } from './services/linkedin.service';
@@ -17,7 +18,8 @@ import { LinkedinService } from './services/linkedin.service';
 		LinkedinQuotaService,
 		LinkedinApiService,
 		LinkedinService,
-		LinkedinIngestService
+		LinkedinIngestService,
+		LinkedinBackfillWalkService
 	]
 })
 export class LinkedinModule { }

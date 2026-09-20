@@ -32,6 +32,8 @@ import { TiktokAccountStatsProvider } from '../providers/tiktok.account.stats.pr
 import { TiktokAccountTokensProvider } from '../providers/tiktok.account.tokens.provider';
 import { TiktokApiUsageProvider } from '../providers/tiktok.api.usage.provider';
 import { TiktokVideoStatsProvider } from '../providers/tiktok.video.stats.provider';
+import { YoutubeBackfillWalkStateProvider } from '../providers/youtube.backfill.walk.state.provider';
+import { LinkedinBackfillWalkStateProvider } from '../providers/linkedin.backfill.walk.state.provider';
 import { YoutubeAnalyticsSnapshotsProvider } from '../providers/youtube.analytics.snapshots.provider';
 import { YoutubeChannelStatsProvider } from '../providers/youtube.channel.stats.provider';
 import { YoutubeGeoDeviceStatsProvider } from '../providers/youtube.geo.device.stats.provider';
@@ -78,6 +80,8 @@ import { YoutubeVideoTrafficSourceStatsProvider } from '../providers/youtube.vid
 		...TiktokAccountStatsProvider,
 		...TiktokAccountTokensProvider,
 		...TiktokApiUsageProvider,
+		...YoutubeBackfillWalkStateProvider,
+		...LinkedinBackfillWalkStateProvider,
 		...TiktokVideoStatsProvider,
 		...YoutubeAnalyticsSnapshotsProvider,
 		...YoutubeChannelStatsProvider,
@@ -124,6 +128,8 @@ import { YoutubeVideoTrafficSourceStatsProvider } from '../providers/youtube.vid
 		...TiktokAccountStatsProvider,
 		...TiktokAccountTokensProvider,
 		...TiktokApiUsageProvider,
+		...YoutubeBackfillWalkStateProvider,
+		...LinkedinBackfillWalkStateProvider,
 		...TiktokVideoStatsProvider,
 		...YoutubeAnalyticsSnapshotsProvider,
 		...YoutubeChannelStatsProvider,

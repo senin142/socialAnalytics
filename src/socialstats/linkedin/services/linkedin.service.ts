@@ -6,6 +6,7 @@ import {
 } from '../../../database/entity';
 import { logToErrorFile } from '../../../common/logger';
 import { BadGatewayException, HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Op } from 'sequelize';
 import { DataCoverageService } from '../../shared/services/data-coverage.service';
 import { LinkedinApiService } from './linkedin-api.service';
 import { LinkedinAuthService } from './linkedin-auth.service';
@@ -252,9 +253,20 @@ export class LinkedinService implements OnModuleInit {
 			const elements = response?.elements || [];
 			for (const element of elements) {
 				const views = element.totalPageStatistics?.views || {};
+				const statDate = new Date(element.timeRange.start).toISOString().slice(0, 10);
+				// No unique index on (organizationUrn, statDate) -- an overlapping call (the daily
+				// cron re-covering yesterday, a backfill walk retrying a chunk after a rate limit)
+				// would otherwise insert a second row for a day we already have. Check-then-write
+				// keeps repeated calls over the same window idempotent.
+				const existing = await this.linkedinPageStatsRepo.findOne({
+					where: { organizationUrn, statDate }
+				});
+				if (existing) {
+					continue;
+				}
 				await this.linkedinPageStatsRepo.create({
 					organizationUrn,
-					statDate: new Date(element.timeRange.start).toISOString().slice(0, 10),
+					statDate,
 					allPageViews: views.allPageViews?.pageViews ?? 0,
 					desktopPageViews: views.allDesktopPageViews?.pageViews ?? 0,
 					mobilePageViews: views.allMobilePageViews?.pageViews ?? 0,
@@ -319,6 +331,26 @@ export class LinkedinService implements OnModuleInit {
 			const elements = response?.elements || [];
 			for (const element of elements) {
 				const stats = element.totalShareStatistics || {};
+				const capturedAt = element.timeRange?.start ? new Date(element.timeRange.start) : new Date();
+				// Same reasoning as getPageStatistics above: no unique index on
+				// (organizationUrn, capturedAt-day), so an overlapping call would otherwise
+				// duplicate a day we already have. capturedAt is a day boundary here (LinkedIn's
+				// smallest time-bound granularity), so a same-day match is a same-row match.
+				const dayStart = new Date(capturedAt);
+				dayStart.setUTCHours(0, 0, 0, 0);
+				const dayEnd = new Date(dayStart);
+				dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+				const existing = await this.linkedinShareStatsRepo.findOne({
+					where: {
+						organizationUrn,
+						shareUrn: null,
+						ugcPostUrn: null,
+						capturedAt: { [Op.gte]: dayStart, [Op.lt]: dayEnd }
+					}
+				});
+				if (existing) {
+					continue;
+				}
 				await this.linkedinShareStatsRepo.create({
 					organizationUrn,
 					shareUrn: null,
@@ -330,7 +362,7 @@ export class LinkedinService implements OnModuleInit {
 					commentCount: stats.commentCount ?? 0,
 					shareCount: stats.shareCount ?? 0,
 					engagement: stats.engagement !== undefined ? String(stats.engagement) : null,
-					capturedAt: element.timeRange?.start ? new Date(element.timeRange.start) : new Date()
+					capturedAt
 				});
 			}
 

@@ -2,6 +2,7 @@ import { JwtAuthGuard, Roles } from '../../../auth';
 import { RoleTypes } from '../../../enums';
 import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { LinkedinAuthService } from '../services/linkedin-auth.service';
+import { LinkedinBackfillWalkService } from '../services/linkedin-backfill-walk.service';
 import { LinkedinQuotaService } from '../services/linkedin-quota.service';
 import { LinkedinService } from '../services/linkedin.service';
 
@@ -10,7 +11,8 @@ export class LinkedinController {
 	constructor(
 		private readonly linkedinAuthService: LinkedinAuthService,
 		private readonly linkedinQuotaService: LinkedinQuotaService,
-		private readonly linkedinService: LinkedinService
+		private readonly linkedinService: LinkedinService,
+		private readonly linkedinBackfillWalkService: LinkedinBackfillWalkService
 	) { }
 
 	@UseGuards(JwtAuthGuard)
@@ -104,5 +106,39 @@ export class LinkedinController {
 	@Get('shares/statistics')
 	async getShareStatistics(@Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
 		return await this.linkedinService.getShareStatistics(startDate, endDate);
+	}
+
+	/**
+	 * Starts an in-process background walk that steps a fixed-size date window backward,
+	 * one chunk per tick, backfilling page statistics and (while within its 12-month window)
+	 * share statistics for each window until `deadline`. Returns immediately; progress is
+	 * polled via backfill-walk/status. Follower statistics and organization overview are not
+	 * backfillable -- LinkedIn only exposes those as lifetime aggregates. See
+	 * LinkedinBackfillWalkService for the 12-month floor and retry semantics.
+	 */
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Post('ingest/backfill-walk/start')
+	async startBackfillWalk(@Body() body: Record<string, unknown>) {
+		return await this.linkedinBackfillWalkService.start({
+			chunkDays: typeof body.chunkDays === 'number' ? body.chunkDays : undefined,
+			intervalMinutes: typeof body.intervalMinutes === 'number' ? body.intervalMinutes : undefined,
+			deadline: typeof body.deadline === 'string' ? body.deadline : undefined,
+			startDate: typeof body.startDate === 'string' ? body.startDate : undefined
+		});
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Get('ingest/backfill-walk/status')
+	getBackfillWalkStatus() {
+		return this.linkedinBackfillWalkService.getStatus();
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Roles(RoleTypes.Admin, RoleTypes.Super_Admin, RoleTypes.Analytics_Admin)
+	@Post('ingest/backfill-walk/stop')
+	async stopBackfillWalk() {
+		return await this.linkedinBackfillWalkService.stop();
 	}
 }
