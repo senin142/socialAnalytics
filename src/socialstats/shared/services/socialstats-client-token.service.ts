@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 
 export type SocialStatsClientTokenPayload = {
 	v: 1;
-	iss: 'admin-microservice:socialstats';
+	iss: 'social-analytics:socialstats';
 	aud: 'socialstats-client';
 	scope: string;
 	sub: string | null;
@@ -38,7 +38,7 @@ export type SocialStatsClientTokenVerificationResult = {
 @Injectable()
 export class SocialStatsClientTokenService {
 	private readonly tokenPrefix = 'sst1';
-	private readonly issuer = 'admin-microservice:socialstats';
+	private readonly issuer = 'social-analytics:socialstats';
 	private readonly audience = 'socialstats-client';
 	private readonly defaultScope = 'socialstats-client';
 	private readonly defaultExpiresInSeconds = 60 * 60;

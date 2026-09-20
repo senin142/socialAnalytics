@@ -2,7 +2,7 @@
 
 A standalone NestJS service that ingests analytics from Meta (Facebook + Instagram), YouTube, TikTok, and LinkedIn into PostgreSQL, and serves it back through a REST API for dashboards.
 
-It was extracted from a larger monorepo's `socialstats` feature into a self-contained service with no external workspace dependencies.
+Built as a self-contained service with no external workspace dependencies — the multi-platform ingestion pattern (per-platform modules, a shared ingestion-run tracker, dual admin/client API surfaces) is one I've used before, rebuilt here from scratch as original code.
 
 ---
 
@@ -98,7 +98,7 @@ src/
     linkedin/              Community Management API
 ```
 
-**Why Sequelize repository tokens instead of `@InjectModel`:** carried over from the source monorepo, where models are bound to string tokens (`'YOUTUBE_CHANNEL_STATS_REPOSITORY'`) by provider files. Keeping the pattern made the extraction a near-verbatim copy, which kept the diff reviewable.
+**Why Sequelize repository tokens instead of `@InjectModel`:** models are bound to string tokens (`'YOUTUBE_CHANNEL_STATS_REPOSITORY'`) by dedicated provider files — a pattern I prefer for this kind of service since it keeps the DI wiring explicit and the provider files reviewable as their own diff, separate from the models themselves.
 
 ### Auth model
 

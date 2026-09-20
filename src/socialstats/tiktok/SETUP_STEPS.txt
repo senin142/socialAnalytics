@@ -47,14 +47,14 @@ does not need to be a working page — a "copy this code" placeholder is enough,
 you copy the code out of the address bar in Step 5.
 
 1. In the app dashboard, add a redirect URI, e.g.:
-   https://admin.cnbcarabia.com/tiktok-auth-callback
+   https://admin.example.com/tiktok-auth-callback
 2. It must be HTTPS and must match TIKTOK_REDIRECT_URI exactly — TikTok does an exact
    string match.
 
 
 STEP 4 — Set environment variables
 --------------------------------------
-Add these to the admin-microservice environment:
+Add these to this service's environment:
 
   TIKTOK_CLIENT_KEY      = (from Step 1)
   TIKTOK_CLIENT_SECRET   = (from Step 1)
@@ -69,24 +69,24 @@ Optional (defaults are fine to start):
   TIKTOK_TOKEN_REFRESH_BUFFER_MS   = 1800000 (refresh when <30 min of token life remains)
   TIKTOK_HTTP_TIMEOUT_MS           = 15000
 
-Restart admin-microservice after setting these.
+Restart this service after setting these.
 
 
-STEP 5 — Authorize the app (one-time, as the CNBC Arabia TikTok account)
+STEP 5 — Authorize the app (one-time, as your organization's TikTok account)
 -----------------------------------------------------------------------------
-You must be logged into TikTok as the CNBC Arabia account when you do this — the token
-is bound to whichever account approves the consent screen.
+You must be logged into TikTok as your organization's account when you do this — the
+token is bound to whichever account approves the consent screen.
 
 1. Call (with your admin JWT):
      GET /admin/api/admin/socialstats/tiktok/auth/authorize-url
    This returns an "authorizeUrl".
 
-2. Open that URL in a browser logged in as the CNBC Arabia TikTok account. Approve the
+2. Open that URL in a browser logged in as your organization's TikTok account. Approve the
    consent screen. Make sure every requested scope is ticked — TikTok lets the user
    decline individual scopes, and a declined user.info.stats means no follower data.
 
 3. TikTok redirects to TIKTOK_REDIRECT_URI with a "code" AND a "state" in the address bar:
-     https://admin.cnbcarabia.com/tiktok-auth-callback?code=abc123...&state=xyz...
+     https://admin.example.com/tiktok-auth-callback?code=abc123...&state=xyz...
    Copy BOTH values (each is everything after the = and before the next &).
 
 4. Call:

@@ -1,7 +1,7 @@
 {
   "name": "social-analytics",
   "version": "0.1.0",
-  "description": "Standalone Social Analytics backend, extracted from the CNBC admin-microservice socialstats feature",
+  "description": "Standalone Social Analytics backend: scheduled ingestion and a REST API for Meta, YouTube, TikTok, and LinkedIn analytics",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {

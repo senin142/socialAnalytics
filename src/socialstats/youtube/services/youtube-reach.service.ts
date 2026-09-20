@@ -51,19 +51,19 @@ export class YoutubeReachService implements OnModuleInit {
 	private readonly bulkReports: BulkReportConfig[] = [
 		{
 			reportTypeId: 'channel_reach_basic_a1',
-			jobName: 'CNBC Arabia channel reach (basic)',
+			jobName: 'Primary channel reach (basic)',
 			requiredHeaders: ['date', 'video_id', 'video_thumbnail_impressions'],
 			ingest: (records, reportId) => this.ingestReachRecords(records, reportId)
 		},
 		{
 			reportTypeId: 'channel_basic_a3',
-			jobName: 'CNBC Arabia channel basic (per video per day)',
+			jobName: 'Primary channel basic (per video per day)',
 			requiredHeaders: ['date', 'video_id', 'views'],
 			ingest: (records, reportId) => this.ingestVideoDailyRecords(records, reportId)
 		},
 		{
 			reportTypeId: 'channel_traffic_source_a3',
-			jobName: 'CNBC Arabia traffic sources (per video per day)',
+			jobName: 'Primary channel traffic sources (per video per day)',
 			requiredHeaders: ['date', 'video_id', 'traffic_source_type', 'views'],
 			ingest: (records, reportId) => this.ingestTrafficSourceRecords(records, reportId)
 		}

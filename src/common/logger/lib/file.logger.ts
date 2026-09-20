@@ -12,7 +12,7 @@ const logsDirectory = join(
 mkdirSync(logsDirectory, { recursive: true });
 
 const infoTransport: DailyRotateFile = new DailyRotateFile({
-	filename: join(logsDirectory, 'cnbc-info-%DATE%.log'),
+	filename: join(logsDirectory, 'app-info-%DATE%.log'),
 	datePattern: 'YYYY-MM-DD',
 	zippedArchive: true,
 	maxFiles: process.env.MAX_DAYS_FOR_LOGS + 'd',
@@ -20,7 +20,7 @@ const infoTransport: DailyRotateFile = new DailyRotateFile({
 });
 
 const errorTransport: DailyRotateFile = new DailyRotateFile({
-	filename: join(logsDirectory, 'cnbc-error-%DATE%.log'),
+	filename: join(logsDirectory, 'app-error-%DATE%.log'),
 	datePattern: 'YYYY-MM-DD',
 	zippedArchive: true,
 	maxFiles: process.env.MAX_DAYS_FOR_LOGS + 'd',
@@ -28,7 +28,7 @@ const errorTransport: DailyRotateFile = new DailyRotateFile({
 });
 
 const debugTransport: DailyRotateFile = new DailyRotateFile({
-	filename: join(logsDirectory, 'cnbc-debug-%DATE%.log'),
+	filename: join(logsDirectory, 'app-debug-%DATE%.log'),
 	datePattern: 'YYYY-MM-DD',
 	zippedArchive: true,
 	maxFiles: process.env.MAX_DAYS_FOR_LOGS + 'd',

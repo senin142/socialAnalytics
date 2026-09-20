@@ -53,7 +53,7 @@ describe('IngestionRunsService', () => {
 		it('never reclaims under a managed revision, where instances share a hostname', async () => {
 			const orphan = { id: 27713, update: jest.fn() };
 			repo.findAll.mockResolvedValue([orphan]);
-			process.env.K_REVISION = 'cnbc-staging-admin-backend-00121-5xs';
+			process.env.K_REVISION = 'social-analytics-staging-00121-5xs';
 			try {
 				await service.onModuleInit();
 			} finally {
@@ -151,7 +151,7 @@ describe('IngestionRunsService', () => {
 				id: 27713,
 				platform: 'youtube',
 				jobType: 'live_viewers',
-				leasedBy: 'cnbc-staging-admin-backend-00121-5xs:localhost'
+				leasedBy: 'social-analytics-staging-00121-5xs:localhost'
 			});
 
 			await expect(service.createRun(input)).rejects.toBeInstanceOf(IngestionRunConflictError);

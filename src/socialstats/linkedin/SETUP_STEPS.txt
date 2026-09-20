@@ -9,7 +9,7 @@ over any organization analytics data. Follow these in order.
 STEP 1 — Create a LinkedIn developer app
 -----------------------------------------
 1. Go to https://developer.linkedin.com/ and create an app.
-2. Link it to the CNBC Arabia LinkedIn Company Page (you must be an admin of that page).
+2. Link it to your organization's LinkedIn Company Page (you must be an admin of that page).
 3. Note down the app's Client ID and Client Secret — you'll need them in Step 4.
 
 
@@ -34,19 +34,19 @@ need to be a real working page — a simple "copy this code" placeholder page is
 because you'll manually copy the code out of the browser's address bar in Step 5.
 
 1. In the LinkedIn app dashboard, under "Auth", add a redirect URL, e.g.:
-   https://admin.cnbcarabia.com/linkedin-auth-callback
+   https://admin.example.com/linkedin-auth-callback
 2. This exact URL must match LINKEDIN_REDIRECT_URI in Step 4 — LinkedIn checks for an
    exact match.
 
 
 STEP 4 — Set environment variables
 --------------------------------------
-Add these to the admin-microservice environment (.env or wherever secrets are set):
+Add these to this service's environment (.env or wherever secrets are set):
 
   LINKEDIN_CLIENT_ID           = (from Step 1)
   LINKEDIN_CLIENT_SECRET       = (from Step 1)
   LINKEDIN_REDIRECT_URI        = (from Step 3, must match exactly)
-  LINKEDIN_ORGANIZATION_ID     = (the numeric ID of the CNBC Arabia LinkedIn page —
+  LINKEDIN_ORGANIZATION_ID     = (the numeric ID of your organization's LinkedIn page —
                                    found in the page's admin URL, e.g.
                                    linkedin.com/company/12345678/admin/ -> 12345678)
 
@@ -63,12 +63,12 @@ first. The code enforces the lower of the two. Raise both together after approva
 NOTE ON REPLICAS: these budgets are counted per running instance, not cluster-wide (see
 "KNOWN LIMITATION" at the bottom).
 
-Restart admin-microservice after setting these.
+Restart this service after setting these.
 
 
 STEP 5 — Authorize the app (one-time, do this yourself as a page admin)
 ----------------------------------------------------------------------------
-You must be logged in as a page ADMINISTRATOR of the CNBC Arabia LinkedIn page to
+You must be logged in as a page ADMINISTRATOR of your organization's LinkedIn page to
 do this step — not just any LinkedIn account.
 
 1. Call (as an admin user, via Postman/browser with your admin JWT):
@@ -80,7 +80,7 @@ do this step — not just any LinkedIn account.
 
 3. LinkedIn redirects you to LINKEDIN_REDIRECT_URI with a "code" AND a "state" in the
    address bar, e.g.:
-     https://admin.cnbcarabia.com/linkedin-auth-callback?code=AQT...&state=...
+     https://admin.example.com/linkedin-auth-callback?code=AQT...&state=...
    Copy BOTH values (each is everything after the = and before the next &).
 
 4. Call:
