@@ -13,7 +13,8 @@ async function bootstrap() {
 		}),
 	);
 
-	app.enableCors();
+	const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()).filter(Boolean);
+	app.enableCors({ origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : true });
 
 	const port = process.env.PORT || 3000;
 	await app.listen(port, () => {

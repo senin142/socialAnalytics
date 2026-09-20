@@ -1,5 +1,6 @@
 import { Public } from '../../../auth';
-import { Controller, Get, Query } from '@nestjs/common';
+import { ClientTokenGuard } from '../../../auth/guards/client-token.guard';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { MetaAuthService } from '../services/meta-auth.service';
 import { MetaDashboardService } from '../services/meta-dashboard.service';
 import { MetaFacebookService } from '../services/meta-facebook.service';
@@ -9,6 +10,7 @@ import { MetaInstagramService } from '../services/meta-instagram.service';
 import { MetaRateLimitService } from '../services/meta-rate-limit.service';
 
 @Public()
+@UseGuards(ClientTokenGuard)
 @Controller('admin/api/client/socialstats/meta')
 export class MetaClientController {
 	constructor(

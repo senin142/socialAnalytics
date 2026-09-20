@@ -35,7 +35,11 @@ export const Connection = [
                   process.env.DB_SSL === "true"
                     ? {
                         require: true,
-                        rejectUnauthorized: false,
+                        // Defaults to strict certificate validation. Only disable via the
+                        // explicit opt-out below for environments that require self-signed
+                        // certs (e.g. some managed Postgres providers' internal networking).
+                        rejectUnauthorized:
+                          process.env.DB_SSL_ALLOW_SELF_SIGNED === "true" ? false : true,
                       }
                     : false,
               }

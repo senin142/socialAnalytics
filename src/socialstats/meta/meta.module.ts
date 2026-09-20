@@ -1,4 +1,5 @@
 import { AuthModuleModule } from '../../auth';
+import { ClientTokenGuard } from '../../auth/guards/client-token.guard';
 import { ProvidersModule } from '../../database/providers';
 import { Module } from '@nestjs/common';
 import { SocialStatsSharedModule } from '../shared/socialstats-shared.module';
@@ -28,7 +29,8 @@ import { MetaRateLimitService } from './services/meta-rate-limit.service';
 		MetaDashboardService,
 		MetaIngestService,
 		MetaIngestSchedulerService,
-		MetaBackfillWalkService
+		MetaBackfillWalkService,
+		ClientTokenGuard
 	]
 })
 export class MetaModule { }

@@ -1,9 +1,11 @@
 import { Public } from '../../../auth';
-import { BadRequestException, Controller, Get, Post, Query } from '@nestjs/common';
+import { ClientTokenGuard } from '../../../auth/guards/client-token.guard';
+import { BadRequestException, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { YoutubeQuotaService } from '../services/youtube-quota.service';
 import { YoutubeService } from '../services/youtube.service';
 
 @Public()
+@UseGuards(ClientTokenGuard)
 @Controller('admin/api/client/socialstats/youtube')
 export class YoutubeClientController {
 	constructor(
