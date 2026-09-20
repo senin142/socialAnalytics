@@ -209,7 +209,7 @@ B2B-focused, and uniquely strong on *who* the audience is — seven demographic 
 
 ## Cross-platform overview
 
-Once the individual dashboards work, an executive summary view is worth building — with care.
+Once the individual dashboards work, an executive summary view is worth building — with care. **[OVERVIEW_PAGE.md](OVERVIEW_PAGE.md) covers it in full**, including two blockers worth knowing before you start: TikTok and LinkedIn have no client-facing API, and there's no cross-platform metrics endpoint. The short version:
 
 **Do:** small multiples, one panel per platform, each with its own scale and its own metric definition labelled. A consistent panel shape makes them scannable without implying the numbers are equivalent.
 

@@ -65,6 +65,7 @@ See **[docs/PLATFORMS.md](docs/PLATFORMS.md)** for how to obtain credentials for
 |---|---|
 | **[docs/PLATFORMS.md](docs/PLATFORMS.md)** | How to set up and operate each platform: credentials, OAuth flow, endpoints, cron schedules, quotas, and the gotchas specific to each API |
 | **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** | How to build a frontend on this API — what data exists per platform, what each dashboard should show, and a build order |
+| **[docs/OVERVIEW_PAGE.md](docs/OVERVIEW_PAGE.md)** | Building the single all-platforms overview page: the two blockers to settle first, layout, and how to compare platforms without misleading people |
 | **[docs/SEO.md](docs/SEO.md)** | Per-platform SEO and discoverability recommendations, tied to the metrics this service actually collects |
 | `src/socialstats/linkedin/SETUP_STEPS.txt` | LinkedIn's full step-by-step approval and auth walkthrough |
 | `src/socialstats/tiktok/SETUP_STEPS.txt` | TikTok's full step-by-step approval and auth walkthrough |
